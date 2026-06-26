@@ -1,0 +1,107 @@
+name: Octomerge
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Run in debug mode"
+        required: false
+        default: false
+        type: boolean
+      use-subscription:
+        description: "Use the Claude Code subscription token for Anthropic models"
+        required: false
+        default: false
+        type: boolean
+      model:
+        description: "The model used for running this task"
+        required: true
+        type: string
+      custom-instructions:
+        description: "The system prompt for the task"
+        required: false
+        type: string
+      prompt:
+        description: "Task for the infer agent"
+        required: true
+        type: string
+      repository:
+        description: "Target repo (owner/name); defaults to this repo"
+        required: false
+        type: string
+      repositories:
+        description: "Extra repos (comma/newline-separated names, same owner) to widen the in-job token scope"
+        required: false
+        default: ""
+      skills:
+        description: "Install skills for the agent"
+        required: false
+        default: ""
+      agents:
+        description: "A2A agents to spin up as local containers (comma/newline-separated; e.g. browser-agent, grafana-agent)"
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  infer:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve target repository
+        id: target
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          FALLBACK: ${{ github.repository }}
+          SCOPE: ${{ inputs.repositories }}
+        run: |
+          repo="${REPOSITORY:-$FALLBACK}"
+          echo "repository=$repo" >> "$GITHUB_OUTPUT"
+          echo "owner=${repo%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${repo##*/}" >> "$GITHUB_OUTPUT"
+          echo "repositories=${SCOPE:-${repo##*/}}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate a token for the target repository
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.OCTOMERGE_APP_ID }}
+          private-key: ${{ secrets.OCTOMERGE_APP_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.repositories }}
+
+      - name: Checkout target repository
+        uses: actions/checkout@v7.0.0
+        with:
+          repository: ${{ steps.target.outputs.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Run infer
+        uses: inference-gateway/infer-action@v0.19.0
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          model: ${{ inputs.model }}
+          direct-prompt: ${{ inputs.prompt }}
+          custom-instructions: ${{ inputs.custom-instructions }}
+          github-app-slug: ${{ steps.app-token.outputs.app-slug }}
+          debug: ${{ inputs.debug }}
+          mirror-agent-logs: ${{ inputs.debug }}
+          skills: ${{ inputs.skills }}
+          agents: ${{ inputs.agents }}
+          bash-allow-append: "gh issue create( .*)?,gh issue comment( .*)?,gh issue edit( .*)?,gh pr comment( .*)?"
+          deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          use-claude-code-subscription: ${{ inputs.use-subscription }}
+          claude-code-oauth-token: ${{ inputs.use-subscription && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          google-api-key: ${{ secrets.GOOGLE_API_KEY }}
+          groq-api-key: ${{ secrets.GROQ_API_KEY }}
+          mistral-api-key: ${{ secrets.MISTRAL_API_KEY }}
+          cloudflare-api-key: ${{ secrets.CLOUDFLARE_API_KEY }}
+          cohere-api-key: ${{ secrets.COHERE_API_KEY }}
+          ollama-api-key: ${{ secrets.OLLAMA_API_KEY }}
+          ollama-cloud-api-key: ${{ secrets.OLLAMA_CLOUD_API_KEY }}
+          minimax-api-key: ${{ secrets.MINIMAX_API_KEY }}
+          moonshot-api-key: ${{ secrets.MOONSHOT_API_KEY }}
+          enable-git-operations: "true"
